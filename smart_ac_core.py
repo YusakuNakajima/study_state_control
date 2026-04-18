@@ -29,7 +29,7 @@ class Scenario:
     sensor_noise_sigma: float = 0.35
     seed: int = 7
     cold_front_start_step: int = 21
-    cold_front_min_temp: float = -20.0
+    cold_front_min_temp: float = -30.0
     pid_target_temp: float = 23.0
     pid_kp: float = 0.42
     pid_ki: float = 0.10
