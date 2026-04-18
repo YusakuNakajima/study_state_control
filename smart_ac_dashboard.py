@@ -194,6 +194,30 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       line-height: 1.5;
       color: var(--muted);
     }
+    .equation-vars {
+      margin-top: 10px;
+      display: grid;
+      gap: 6px;
+    }
+    .equation-var {
+      display: grid;
+      grid-template-columns: minmax(96px, 120px) 1fr;
+      gap: 10px;
+      align-items: start;
+      padding-top: 6px;
+      border-top: 1px dashed rgba(216, 208, 194, 0.9);
+    }
+    .equation-var code {
+      display: inline-block;
+      border-radius: 10px;
+      background: rgba(19, 111, 99, 0.08);
+      color: #0f4c45;
+    }
+    .equation-var span {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--ink);
+    }
     @media (max-width: 980px) {
       .hero, .experiment-panel, .grid, .notes { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -441,10 +465,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       for (const equation of data.narrative.equations) {
         const card = document.createElement("div");
         card.className = "equation-card";
+        const variablesHtml = (equation.variables || []).map(([name, description]) => `
+          <div class="equation-var">
+            <code>${name}</code>
+            <span>${description}</span>
+          </div>
+        `).join("");
         card.innerHTML = `
           <div class="equation-title">${equation.title}</div>
           <div class="equation-math">${equation.html}</div>
           <div class="equation-note">${equation.note}</div>
+          <div class="equation-vars">${variablesHtml}</div>
         `;
         root.appendChild(card);
       }
