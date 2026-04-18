@@ -389,7 +389,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     <section class="grid">
       <div class="panel">
-        <div class="chart-title"><h2>室温の時系列</h2><span>MPC 実温度、センサー値、PID 制御を比較</span></div>
+        <div class="chart-title"><h2>室温の時系列</h2><span>MPC 仮想温度、観測温度、PID 仮想温度を比較</span></div>
         <canvas id="temp-chart" width="800" height="290"></canvas>
       </div>
       <div class="panel">
@@ -438,7 +438,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="panel">
         <div class="chart-title"><h2>なぜ予測がずれても破綻しにくいか</h2><span>今回の例で見える 2 つの補正メカニズム</span></div>
         <ul>
-          <li>毎ステップごとに最新センサー値から解き直し、計画の最初の 1 手だけを実際に送っています。</li>
+          <li>毎ステップごとに最新の観測温度から解き直し、計画の最初の 1 手だけを実際に送っています。</li>
           <li><code>z[k]</code> は、1 ステップ先予測と実測の差を使って、モデルの癖を徐々に補正します。</li>
           <li>ホライズンのグラフに出ている未来計画は仮の案です。次の計測が来たら捨てて作り直します。</li>
           <li>この例では、あえて実プラントとモデルの係数をずらしてあるので、誤差補正の意味が見えます。</li>
@@ -805,9 +805,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const timeline = data.timeline;
       const softConstraintBands = buildSoftConstraintBands();
       drawLineChart("temp-chart", [
-        makeSeries(timeline.map(row => row.mpc_actual_room_temp_c), COLORS.blue, "MPC 実温度", 2.6),
-        makeSeries(timeline.map(row => row.mpc_measured_room_temp_c), COLORS.gray, "センサー値", 1.6, [3, 3]),
-        makeSeries(timeline.map(row => row.pid_room_temp_c), COLORS.red, "PID 実温度", 2.2),
+        makeSeries(timeline.map(row => row.mpc_actual_room_temp_c), COLORS.blue, "MPC 仮想温度", 2.6),
+        makeSeries(timeline.map(row => row.mpc_measured_room_temp_c), COLORS.gray, "観測温度", 1.6, [3, 3]),
+        makeSeries(timeline.map(row => row.pid_room_temp_c), COLORS.red, "PID 仮想温度", 2.2),
         makeSeries(new Array(timeline.length).fill(data.config.comfort_low), COLORS.accent, "快適下限", 1.5, [6, 4]),
         makeSeries(new Array(timeline.length).fill(data.config.comfort_high), COLORS.accent, "快適上限", 1.5, [6, 4]),
         makeSeries(new Array(timeline.length).fill(data.config.min_safe_temp), COLORS.gold, "安全下限", 1.4, [2, 4]),
@@ -926,20 +926,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       renderCharts(step);
       if (row.mpc_fallback_active) {
         setSoftZoneState(false);
-        setText("experiment-status", `step ${step} はフォールバック中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+        setText("experiment-status", `step ${step} はフォールバック中です。現在の仮想室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
       } else if (row.mpc_soft_constraint_active) {
         setSoftZoneState(
           true,
           `ここはソフト制約ゾーンです。安全下限 ${data.config.min_safe_temp.toFixed(1)} C をこの step では守れないため、罰則付きで最善手を選んでいます。現在の短不足は ${row.mpc_soft_constraint_shortfall_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} % です。`
         );
-        setText("experiment-status", `step ${step} はソフト制約ゾーンです。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+        setText("experiment-status", `step ${step} はソフト制約ゾーンです。現在の仮想室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
       } else {
         setSoftZoneState(false);
-        setText("experiment-status", `step ${step} を表示中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+        setText("experiment-status", `step ${step} を表示中です。現在の仮想室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
       }
       document.getElementById("step-info").innerHTML =
-        buildInfoCard("センサー y[k]", `${row.mpc_measured_room_temp_c.toFixed(2)} C`) +
-        buildInfoCard("実温度 x[k]", `${row.mpc_actual_room_temp_c.toFixed(2)} C`) +
+        buildInfoCard("観測温度 y[k]", `${row.mpc_measured_room_temp_c.toFixed(2)} C`) +
+        buildInfoCard("仮想温度 x[k]", `${row.mpc_actual_room_temp_c.toFixed(2)} C`) +
         buildInfoCard("操作量 u[k]", `${row.mpc_power_pct.toFixed(0)} %`) +
         buildInfoCard("予測誤差", `${row.mpc_residual_c.toFixed(2)} C`) +
         buildInfoCard("補正 z[k]", `${row.mpc_bias_correction_c.toFixed(2)} C`) +
@@ -962,7 +962,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       }));
       drawLineChart("horizon-chart", [
         ...overlaySeries,
-        { values: realized, color: COLORS.red, label: "実際の温度推移", width: 2.4 },
+        { values: realized, color: COLORS.red, label: "仮想温度推移", width: 2.4 },
         { values: comfortLow, color: COLORS.accent, label: "快適下限", width: 1.4, dash: [6, 4] },
         { values: comfortHigh, color: COLORS.accent, label: "快適上限", width: 1.4, dash: [6, 4] },
       ], {
