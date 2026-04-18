@@ -14,7 +14,7 @@ class Scenario:
     initial_room_temp: float = 23.1
     comfort_low: float = 22.0
     comfort_high: float = 24.0
-    min_safe_temp: float = 18.0
+    min_safe_temp: float = 20.0
     max_power_kw: float = 3.2
     model_leak_rate: float = 0.012
     model_heater_gain: float = 0.72
@@ -29,6 +29,7 @@ class Scenario:
     sensor_noise_sigma: float = 0.35
     seed: int = 7
     cold_front_start_step: int = 21
+    cold_front_min_temp: float = -20.0
     pid_target_temp: float = 23.0
     pid_kp: float = 0.42
     pid_ki: float = 0.10
@@ -55,6 +56,9 @@ class MPCTrace:
     residuals: list[float]
     bias_corrections: list[float]
     solve_times_ms: list[float]
+    soft_constraint_active: list[bool]
+    soft_constraint_shortfall_c: list[float]
+    fallback_active: list[bool]
     plan_controls: list[list[float]]
     plan_temps: list[list[float]]
     energy_kwh: float
@@ -68,16 +72,18 @@ def clamp(value: float, lower: float, upper: float) -> float:
 
 def _build_outdoor_profile(cfg: Scenario) -> list[float]:
     front_hour = cfg.cold_front_start_step * cfg.dt_hours
+    cold_min = float(cfg.cold_front_min_temp)
+    early_drop = 0.5 * (2.0 + cold_min)
     anchors = [
         (front_hour - 3.5, 14.0),
         (front_hour - 2.5, 13.5),
         (front_hour - 1.5, 12.0),
         (front_hour - 0.5, 8.0),
         (front_hour + 0.0, 2.0),
-        (front_hour + 0.5, -4.0),
-        (front_hour + 1.5, -6.0),
-        (front_hour + 2.5, -2.0),
-        (front_hour + 3.5, 2.0),
+        (front_hour + 0.5, early_drop),
+        (front_hour + 1.5, cold_min),
+        (front_hour + 2.5, cold_min + 4.0),
+        (front_hour + 3.5, cold_min + 8.0),
         (front_hour + 4.5, 6.0),
         (front_hour + 6.5, 9.0),
         (front_hour + 8.5, 11.0),
@@ -143,6 +149,13 @@ def _comfort_penalty(temp: float, cfg: Scenario) -> float:
     return center_penalty + 60.0 * band_distance**2
 
 
+def _soft_safety_penalty(temp: float, cfg: Scenario) -> float:
+    shortfall = max(0.0, cfg.min_safe_temp - temp)
+    if shortfall <= 0.0:
+        return 0.0
+    return 1600.0 * shortfall**2 + 250.0 * shortfall
+
+
 def _build_temperature_grid(cfg: Scenario) -> list[float]:
     count = int(round((cfg.temp_grid_max - cfg.temp_grid_min) / cfg.temp_grid_step)) + 1
     return [cfg.temp_grid_min + index * cfg.temp_grid_step for index in range(count)]
@@ -176,9 +189,7 @@ def _compute_cost_to_go(
             best_cost = math.inf
             for power in cfg.control_levels:
                 next_temp = _controller_dynamics(temp, forecast[offset], power, bias, cfg)
-                if next_temp < cfg.min_safe_temp:
-                    continue
-                stage_cost = _comfort_penalty(next_temp, cfg) + 1.8 * power**2
+                stage_cost = _comfort_penalty(next_temp, cfg) + _soft_safety_penalty(next_temp, cfg) + 1.8 * power**2
                 candidate = stage_cost + _interpolate_cost(next_temp, temp_grid, next_costs)
                 if candidate < best_cost:
                     best_cost = candidate
@@ -200,9 +211,7 @@ def _choose_best_action(
     best_cost = math.inf
     for power in cfg.control_levels:
         next_temp = _controller_dynamics(room_temp, outdoor_temp, power, bias, cfg)
-        if next_temp < cfg.min_safe_temp:
-            continue
-        stage_cost = _comfort_penalty(next_temp, cfg) + 1.8 * power**2
+        stage_cost = _comfort_penalty(next_temp, cfg) + _soft_safety_penalty(next_temp, cfg) + 1.8 * power**2
         candidate = stage_cost + _interpolate_cost(next_temp, temp_grid, next_costs)
         if candidate < best_cost:
             best_cost = candidate
@@ -289,6 +298,7 @@ class SmartACModel:
             sensor_noise_sigma=max(0.0, float(cfg.sensor_noise_sigma)),
             seed=max(1, int(round(cfg.seed))),
             cold_front_start_step=cold_front_start_step,
+            cold_front_min_temp=float(cfg.cold_front_min_temp),
             pid_target_temp=float(cfg.pid_target_temp),
             pid_kp=max(0.0, float(cfg.pid_kp)),
             pid_ki=max(0.0, float(cfg.pid_ki)),
@@ -354,6 +364,9 @@ class SmartACModel:
         residuals = [0.0]
         bias_corrections = [0.0]
         solve_times_ms: list[float] = []
+        soft_constraint_active: list[bool] = []
+        soft_constraint_shortfall_c: list[float] = []
+        fallback_active: list[bool] = []
         plan_controls: list[list[float]] = []
         plan_temps: list[list[float]] = []
         current_bias = 0.0
@@ -364,18 +377,40 @@ class SmartACModel:
                 current_bias = (1.0 - cfg.bias_alpha) * current_bias + cfg.bias_alpha * residual
             residuals.append(measured_temp - predicted_next_temps[-1] if step > 0 else 0.0)
             bias_corrections.append(current_bias)
-            solve_started = time.perf_counter()
-            power, predicted_next, planned_u, planned_x = _choose_mpc_plan(
-                measured_temp,
-                outdoor_temps[step:],
-                current_bias,
-                cfg,
-                temp_grid,
-            )
-            solve_times_ms.append((time.perf_counter() - solve_started) * 1000.0)
+            step_fallback = measured_temp < cfg.min_safe_temp
+            if step_fallback:
+                power = 1.0
+                predicted_next = _controller_dynamics(measured_temp, outdoor_temps[step], power, current_bias, cfg)
+                planned_u = [power]
+                planned_x = [measured_temp, predicted_next]
+                solve_times_ms.append(0.0)
+            else:
+                solve_started = time.perf_counter()
+                try:
+                    power, predicted_next, planned_u, planned_x = _choose_mpc_plan(
+                        measured_temp,
+                        outdoor_temps[step:],
+                        current_bias,
+                        cfg,
+                        temp_grid,
+                    )
+                except Exception:
+                    power = 1.0
+                    predicted_next = _controller_dynamics(measured_temp, outdoor_temps[step], power, current_bias, cfg)
+                    planned_u = [power]
+                    planned_x = [measured_temp, predicted_next]
+                    step_fallback = True
+                solve_times_ms.append((time.perf_counter() - solve_started) * 1000.0)
             next_actual = _plant_dynamics(actual_temps[-1], outdoor_temps[step], power, step, cfg)
             next_measured = next_actual + noise[step + 1]
             controls.append(power)
+            fallback_active.append(step_fallback)
+            shortfall = max(
+                0.0,
+                cfg.min_safe_temp - min(measured_temp, predicted_next, next_actual),
+            )
+            soft_constraint_active.append(shortfall > 0.0)
+            soft_constraint_shortfall_c.append(shortfall)
             plan_controls.append(planned_u)
             plan_temps.append(planned_x)
             predicted_next_temps.append(predicted_next)
@@ -391,6 +426,9 @@ class SmartACModel:
             residuals=residuals,
             bias_corrections=bias_corrections,
             solve_times_ms=solve_times_ms,
+            soft_constraint_active=soft_constraint_active,
+            soft_constraint_shortfall_c=soft_constraint_shortfall_c,
+            fallback_active=fallback_active,
             plan_controls=plan_controls,
             plan_temps=plan_temps,
             energy_kwh=energy,
@@ -435,10 +473,13 @@ class SmartACModel:
                     "mpc_actual_room_temp_c": round(mpc.actual_temps[step], 3),
                     "mpc_measured_room_temp_c": round(mpc.measured_temps[step], 3),
                     "mpc_power_pct": round(mpc.controls[step] * 100.0, 1),
+                    "mpc_fallback_active": mpc.fallback_active[step],
                     "mpc_predicted_next_c": round(mpc.predicted_next_temps[step + 1], 3),
                     "mpc_residual_c": round(mpc.residuals[step + 1], 3),
                     "mpc_bias_correction_c": round(mpc.bias_corrections[step + 1], 3),
                     "mpc_solve_time_ms": round(mpc.solve_times_ms[step], 3),
+                    "mpc_soft_constraint_active": mpc.soft_constraint_active[step],
+                    "mpc_soft_constraint_shortfall_c": round(mpc.soft_constraint_shortfall_c[step], 3),
                     "pid_room_temp_c": round(pid.actual_temps[step], 3),
                     "pid_power_pct": round(pid.controls[step] * 100.0, 1),
                 }
@@ -454,9 +495,11 @@ class SmartACModel:
                 ["外乱", "勝手に系を動かす外部要因", "外気温予報", "outdoor_temp_c"],
                 ["予測ホライズン", "何ステップ先まで最適化するか", f"{cfg.mpc_horizon_steps} ステップ", "config.mpc_horizon_steps"],
                 ["Receding Horizon", "最初の1手だけ実行して毎回解き直すこと", "planned_controls[0] だけ適用", "plans[step].planned_controls"],
-                ["制約", "守るべきハード制限", f"室温 >= {cfg.min_safe_temp:.1f} C、出力 0-100%", "min_safe_temp / control_levels"],
+                ["制約", "ハード制限", "出力 0-100%", "control_levels"],
                 ["1ステップ予測誤差", "予測値と次の実測値の差", "y[k] - predicted_next", "mpc_residual_c"],
                 ["オフセット補正 z[k]", "モデルの癖を打ち消す補正量", "モデルに足す温度補正", "mpc_bias_correction_c"],
+                ["ソフト制約", "安全下限を割っても、大罰則を払って最悪回避を選ぶこと", f"室温 < {cfg.min_safe_temp:.1f} C を許容して被害最小化", "mpc_soft_constraint_active"],
+                ["フォールバック", "実測で危険域に入ったら安全側に倒す", f"観測温度 < {cfg.min_safe_temp:.1f} C なら最大暖房", "mpc_fallback_active"],
                 ["計算時間", "各 step で最適化にかかった時間", "MPC の解き直し負荷", "mpc_solve_time_ms"],
             ],
             "narrative": {
@@ -529,6 +572,8 @@ class SmartACModel:
                 "mpc_overshoot_c": round(mpc_overshoot, 3),
                 "mpc_energy_kwh": round(mpc.energy_kwh, 3),
                 "mpc_violations": mpc.comfort_violations,
+                "mpc_soft_constraint_steps": sum(mpc.soft_constraint_active),
+                "mpc_fallback_steps": sum(mpc.fallback_active),
                 "mpc_avg_solve_time_ms": round(sum(mpc.solve_times_ms) / len(mpc.solve_times_ms), 3),
                 "mpc_max_solve_time_ms": round(max(mpc.solve_times_ms), 3),
                 "mpc_total_solve_time_ms": round(sum(mpc.solve_times_ms), 3),

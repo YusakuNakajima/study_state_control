@@ -29,6 +29,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       --accent2: #2563eb;
       --danger: #d94841;
       --gold: #d97706;
+      --soft: #c2410c;
     }
     * { box-sizing: border-box; }
     body {
@@ -118,10 +119,46 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       background: rgba(217, 72, 65, 0.08);
       border-color: rgba(217, 72, 65, 0.18);
     }
+    .status-box.soft {
+      background: rgba(194, 65, 12, 0.10);
+      border-color: rgba(194, 65, 12, 0.22);
+    }
     .status-box span { font-size: 15px; line-height: 1.5; color: var(--ink); }
+    .status-box small {
+      display: block;
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.5;
+    }
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
     .card { background: rgba(255,255,255,0.72); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
     .card .value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+    .value-row { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+    .mode-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(19, 111, 99, 0.22);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      line-height: 1;
+      color: var(--accent);
+      background: rgba(19, 111, 99, 0.10);
+    }
+    .mode-badge.soft {
+      border-color: rgba(194, 65, 12, 0.26);
+      color: var(--soft);
+      background: rgba(194, 65, 12, 0.10);
+    }
+    .mode-badge.fallback {
+      border-color: rgba(217, 72, 65, 0.26);
+      color: var(--danger);
+      background: rgba(217, 72, 65, 0.10);
+    }
     .grid { grid-template-columns: 1fr 1fr; }
     .notes { grid-template-columns: 1fr 1fr; }
     .chart-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
@@ -218,6 +255,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       line-height: 1.45;
       color: var(--ink);
     }
+    .alpha-guide {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(37, 99, 235, 0.06);
+      border: 1px solid rgba(37, 99, 235, 0.12);
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--ink);
+    }
+    .alpha-guide strong {
+      display: inline;
+      margin: 0;
+      color: #1d4ed8;
+      font-size: 12px;
+      letter-spacing: 0;
+      text-transform: none;
+    }
     @media (max-width: 980px) {
       .hero, .experiment-panel, .grid, .notes { grid-template-columns: 1fr; }
       .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -256,11 +311,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="parameter-groups">
           <div class="parameter-group">
             <h3>時間とイベント</h3>
-            <p>実験の長さ、先読みの長さ、寒波イベントの開始位置を決めます。</p>
+            <p>実験の長さ、先読みの長さ、寒波イベントの開始位置と強さを決めます。</p>
             <div class="form-grid">
               <div class="field"><label for="steps-input">総ステップ数</label><input id="steps-input" type="number" min="24" max="180" step="1"><small>10分刻みの実験長さです。</small></div>
               <div class="field"><label for="horizon-input">MPCホライズン</label><input id="horizon-input" type="number" min="3" max="48" step="1"><small>何ステップ先まで最適化するか。</small></div>
               <div class="field"><label for="cold-front-step-input">寒波開始 step</label><input id="cold-front-step-input" type="number" min="0" max="180" step="1"><small>寒波イベントを何 step 目から始めるか。</small></div>
+              <div class="field"><label for="cold-front-min-temp-input">寒波最低外気温</label><input id="cold-front-min-temp-input" type="number" min="-20" max="10" step="0.5"><small>寒波の底で何℃まで下がるか。</small></div>
             </div>
           </div>
           <div class="parameter-group">
@@ -279,6 +335,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <div class="field"><label for="noise-input">センサーノイズ σ</label><input id="noise-input" type="number" min="0" max="2" step="0.05"><small>観測値 <code>y[k]</code> のばらつき。</small></div>
               <div class="field"><label for="bias-alpha-input">補正ゲイン α</label><input id="bias-alpha-input" type="number" min="0" max="1" step="0.05"><small><code>z[k]</code> の追従の速さ。</small></div>
               <div class="field"><label for="seed-input">乱数シード</label><input id="seed-input" type="number" min="1" max="9999" step="1"><small>同じ条件を再現したいときに使います。</small></div>
+            </div>
+            <div class="alpha-guide">
+              <strong>α = 0</strong> はモデル絶対主義です。予測を信じ切って、実測との差で補正しません。<br>
+              <strong>α = 1</strong> は実測絶対主義です。毎回の観測誤差をそのまま最大限に反映します。
             </div>
           </div>
           <div class="parameter-group">
@@ -309,16 +369,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       </div>
       <div class="panel">
         <div id="runtime-warning" class="status-box warn" style="display:none; margin-bottom:12px;"><strong>実行方法の警告</strong><span id="runtime-warning-text"></span></div>
+        <div id="soft-zone-box" class="status-box soft" style="display:none; margin-bottom:12px;"><strong>ソフト制約ゾーン</strong><span id="soft-zone-text"></span></div>
         <div class="status-box"><strong>実験ステータス</strong><span id="experiment-status"></span></div>
         <div class="status-box" style="margin-top:12px;"><strong>現在反映中の寒波開始</strong><span id="applied-front-step"></span></div>
-        <div class="status-box" style="margin-top:12px;"><strong>この例での変数対応</strong><span>CV = 室温 <code>x[k]</code>、MV = エアコン出力 <code>u[k]</code>、外乱 = 外気温予報 <code>Tout[k]</code>、観測値 = ノイズ付き室温 <code>y[k]</code>、補正量 = <code>z[k]</code></span></div>
+        <div class="status-box" style="margin-top:12px;"><strong>この例での変数対応</strong><span>CV = 室温 <code>x[k]</code>、MV = エアコン出力 <code>u[k]</code>、外乱 = 外気温予報 <code>Tout[k]</code>、観測値 = ノイズ付き室温 <code>y[k]</code>、補正量 = <code>z[k]</code></span><small><code>α = 0</code> はモデル絶対主義、<code>α = 1</code> は実測絶対主義です。実際にはその中間で、予測と誤差補正のバランスを取ります。</small></div>
         <div class="chart-title" style="margin-top:16px;"><h2>モデル式</h2><span>小さな部屋向けに簡略化した制御ループ</span></div>
         <div id="equations" class="equation-list"></div>
       </div>
     </section>
 
     <section class="cards">
-      <div class="card"><div class="label">温度変動幅</div><div class="value" id="temp-swing"></div></div>
+      <div class="card"><div class="label">温度変動幅</div><div class="value value-row"><span id="mode-badge" class="mode-badge">通常</span><span id="temp-swing"></span></div></div>
       <div class="card"><div class="label">最大オーバーシュート</div><div class="value" id="overshoot"></div></div>
       <div class="card"><div class="label">消費電力量</div><div class="value" id="energy-compare"></div></div>
       <div class="card"><div class="label">快適域逸脱回数</div><div class="value" id="violations"></div></div>
@@ -392,18 +453,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     let data = JSON.parse(JSON.stringify(baseData));
     let playTimer = null;
 
-    const COLORS = { accent: "#136f63", blue: "#2563eb", red: "#d94841", gold: "#d97706", gray: "#64748b", comfort: "rgba(47, 133, 90, 0.12)" };
+    const COLORS = { accent: "#136f63", blue: "#2563eb", red: "#d94841", gold: "#d97706", gray: "#64748b", soft: "#c2410c", comfort: "rgba(47, 133, 90, 0.12)" };
 
     function setText(id, value) { document.getElementById(id).textContent = value; }
     function showWarning(text) {
       document.getElementById("runtime-warning").style.display = "block";
       setText("runtime-warning-text", text);
     }
+    function setSoftZoneState(active, text = "") {
+      const box = document.getElementById("soft-zone-box");
+      box.style.display = active ? "block" : "none";
+      if (active) setText("soft-zone-text", text);
+    }
 
     function seedFormFromConfig(cfg) {
       document.getElementById("steps-input").value = cfg.steps;
       document.getElementById("horizon-input").value = cfg.mpc_horizon_steps;
       document.getElementById("cold-front-step-input").value = cfg.cold_front_start_step;
+      document.getElementById("cold-front-min-temp-input").value = cfg.cold_front_min_temp;
       document.getElementById("comfort-low-input").value = cfg.comfort_low;
       document.getElementById("comfort-high-input").value = cfg.comfort_high;
       document.getElementById("min-safe-input").value = cfg.min_safe_temp;
@@ -426,6 +493,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         ...baseData.config,
         steps: Math.max(24, Math.round(readNumber("steps-input"))),
         cold_front_start_step: Math.max(0, Math.round(readNumber("cold-front-step-input"))),
+        cold_front_min_temp: readNumber("cold-front-min-temp-input"),
         comfort_low: readNumber("comfort-low-input"),
         comfort_high: readNumber("comfort-high-input"),
         min_safe_temp: readNumber("min-safe-input"),
@@ -492,6 +560,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
 
     function makeSeries(values, color, label, width = 2, dash = []) { return { values, color, label, width, dash }; }
+
+    function buildSoftConstraintBands() {
+      const ranges = [];
+      let start = null;
+      data.timeline.forEach((row, index) => {
+        if (row.mpc_soft_constraint_active) {
+          if (start === null) start = index;
+        } else if (start !== null) {
+          ranges.push({ start, end: index - 1 });
+          start = null;
+        }
+      });
+      if (start !== null) ranges.push({ start, end: data.timeline.length - 1 });
+      return ranges.map((range, index) => ({
+        index: range.start,
+        color: COLORS.soft,
+        label: index === 0 ? "ソフト制約" : "",
+        bandWidth: Math.max(1, range.end - range.start + 1),
+        bandColor: "rgba(194, 65, 12, 0.12)",
+      }));
+    }
 
     function drawLegend(ctx, items, x, y) {
       ctx.font = "12px Segoe UI";
@@ -681,6 +770,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function buildInfoCard(label, value) { return `<div class="mini"><div class="k">${label}</div><div class="v">${value}</div></div>`; }
 
+    function setModeBadge(row) {
+      const badge = document.getElementById("mode-badge");
+      if (!badge) return;
+      const isFallback = Boolean(row && row.mpc_fallback_active);
+      const isSoft = Boolean(row && row.mpc_soft_constraint_active);
+      let modeClass = "";
+      let text = "通常";
+      if (isFallback) {
+        modeClass = "fallback";
+        text = "フォールバック";
+      } else if (isSoft) {
+        modeClass = "soft";
+        text = "ソフト制約";
+      }
+      badge.className = `mode-badge ${modeClass}`.trim();
+      badge.textContent = text;
+    }
+
     function renderControlBars(step) {
       const bars = document.getElementById("control-bars");
       const plan = data.plans[step].planned_controls.slice(0, 9);
@@ -696,6 +803,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function renderCharts(currentStep = null) {
       const timeline = data.timeline;
+      const softConstraintBands = buildSoftConstraintBands();
       drawLineChart("temp-chart", [
         makeSeries(timeline.map(row => row.mpc_actual_room_temp_c), COLORS.blue, "MPC 実温度", 2.6),
         makeSeries(timeline.map(row => row.mpc_measured_room_temp_c), COLORS.gray, "センサー値", 1.6, [3, 3]),
@@ -712,7 +820,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           label: "寒波到来",
           bandWidth: 1.5,
           bandColor: "rgba(217, 72, 65, 0.10)",
-        }],
+        }, ...softConstraintBands],
         currentIndex: currentStep, revealUntil: currentStep,
         markerValues: [
           { values: timeline.map(row => row.mpc_actual_room_temp_c), color: COLORS.blue },
@@ -737,7 +845,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           label: "寒波到来",
           bandWidth: 1.5,
           bandColor: "rgba(217, 72, 65, 0.10)",
-        }],
+        }, ...softConstraintBands],
         currentIndex: currentStep, revealUntil: currentStep,
         markerValues: [
           { values: timeline.map(row => row.mpc_power_pct), color: COLORS.blue },
@@ -814,14 +922,29 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     function renderStep(step) {
       const row = data.timeline[step];
       setText("step-readout", `step ${step} / ${row.hour.toFixed(2)} 時間`);
+      setModeBadge(row);
       renderCharts(step);
-      setText("experiment-status", `step ${step} を表示中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+      if (row.mpc_fallback_active) {
+        setSoftZoneState(false);
+        setText("experiment-status", `step ${step} はフォールバック中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+      } else if (row.mpc_soft_constraint_active) {
+        setSoftZoneState(
+          true,
+          `ここはソフト制約ゾーンです。安全下限 ${data.config.min_safe_temp.toFixed(1)} C をこの step では守れないため、罰則付きで最善手を選んでいます。現在の短不足は ${row.mpc_soft_constraint_shortfall_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} % です。`
+        );
+        setText("experiment-status", `step ${step} はソフト制約ゾーンです。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+      } else {
+        setSoftZoneState(false);
+        setText("experiment-status", `step ${step} を表示中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
+      }
       document.getElementById("step-info").innerHTML =
         buildInfoCard("センサー y[k]", `${row.mpc_measured_room_temp_c.toFixed(2)} C`) +
         buildInfoCard("実温度 x[k]", `${row.mpc_actual_room_temp_c.toFixed(2)} C`) +
         buildInfoCard("操作量 u[k]", `${row.mpc_power_pct.toFixed(0)} %`) +
         buildInfoCard("予測誤差", `${row.mpc_residual_c.toFixed(2)} C`) +
         buildInfoCard("補正 z[k]", `${row.mpc_bias_correction_c.toFixed(2)} C`) +
+        buildInfoCard("フォールバック", row.mpc_fallback_active ? "発動中" : "通常") +
+        buildInfoCard("ソフト制約", row.mpc_soft_constraint_active ? "発動中" : "通常") +
         buildInfoCard("計算時間", `${row.mpc_solve_time_ms.toFixed(2)} ms`);
       renderControlBars(step);
       const realized = new Array(data.timeline.length).fill(null);

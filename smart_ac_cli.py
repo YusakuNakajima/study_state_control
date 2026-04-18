@@ -106,6 +106,7 @@ def main() -> None:
     print(f"Time step              : {cfg.dt_hours * 60:.0f} min")
     print(f"Prediction horizon     : {cfg.mpc_horizon_steps} steps ({cfg.mpc_horizon_steps * cfg.dt_hours:.1f} h)")
     print(f"Cold front starts      : step {front_step} ({front_step * cfg.dt_hours:.2f} h)")
+    print(f"Cold front minimum     : {cfg.cold_front_min_temp:.1f} C")
     print(f"Comfort band (CV)      : {cfg.comfort_low:.1f} C to {cfg.comfort_high:.1f} C")
     print(f"Manipulated variable   : HVAC power u[k] in 0% to 100%")
     print(f"Disturbance forecast   : outdoor temperature Tout[k]")
