@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import random
+import time
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -53,6 +54,7 @@ class MPCTrace:
     predicted_next_temps: list[float]
     residuals: list[float]
     bias_corrections: list[float]
+    solve_times_ms: list[float]
     plan_controls: list[list[float]]
     plan_temps: list[list[float]]
     energy_kwh: float
@@ -351,6 +353,7 @@ class SmartACModel:
         predicted_next_temps = [cfg.initial_room_temp]
         residuals = [0.0]
         bias_corrections = [0.0]
+        solve_times_ms: list[float] = []
         plan_controls: list[list[float]] = []
         plan_temps: list[list[float]] = []
         current_bias = 0.0
@@ -361,6 +364,7 @@ class SmartACModel:
                 current_bias = (1.0 - cfg.bias_alpha) * current_bias + cfg.bias_alpha * residual
             residuals.append(measured_temp - predicted_next_temps[-1] if step > 0 else 0.0)
             bias_corrections.append(current_bias)
+            solve_started = time.perf_counter()
             power, predicted_next, planned_u, planned_x = _choose_mpc_plan(
                 measured_temp,
                 outdoor_temps[step:],
@@ -368,6 +372,7 @@ class SmartACModel:
                 cfg,
                 temp_grid,
             )
+            solve_times_ms.append((time.perf_counter() - solve_started) * 1000.0)
             next_actual = _plant_dynamics(actual_temps[-1], outdoor_temps[step], power, step, cfg)
             next_measured = next_actual + noise[step + 1]
             controls.append(power)
@@ -385,6 +390,7 @@ class SmartACModel:
             predicted_next_temps=predicted_next_temps,
             residuals=residuals,
             bias_corrections=bias_corrections,
+            solve_times_ms=solve_times_ms,
             plan_controls=plan_controls,
             plan_temps=plan_temps,
             energy_kwh=energy,
@@ -399,6 +405,12 @@ class SmartACModel:
         pid = self.run_pid(outdoor_temps, noise)
         mpc = self.run_mpc(outdoor_temps, noise)
         front_step = min(cfg.cold_front_start_step, cfg.steps - 1)
+        pid_max_temp = max(pid.actual_temps)
+        mpc_max_temp = max(mpc.actual_temps)
+        pid_temp_swing = pid_max_temp - pid.min_temp
+        mpc_temp_swing = mpc_max_temp - mpc.min_temp
+        pid_overshoot = max(0.0, pid_max_temp - cfg.comfort_high)
+        mpc_overshoot = max(0.0, mpc_max_temp - cfg.comfort_high)
 
         plans = []
         for step, planned_temps in enumerate(mpc.plan_temps):
@@ -426,6 +438,7 @@ class SmartACModel:
                     "mpc_predicted_next_c": round(mpc.predicted_next_temps[step + 1], 3),
                     "mpc_residual_c": round(mpc.residuals[step + 1], 3),
                     "mpc_bias_correction_c": round(mpc.bias_corrections[step + 1], 3),
+                    "mpc_solve_time_ms": round(mpc.solve_times_ms[step], 3),
                     "pid_room_temp_c": round(pid.actual_temps[step], 3),
                     "pid_power_pct": round(pid.controls[step] * 100.0, 1),
                 }
@@ -444,6 +457,7 @@ class SmartACModel:
                 ["制約", "守るべきハード制限", f"室温 >= {cfg.min_safe_temp:.1f} C、出力 0-100%", "min_safe_temp / control_levels"],
                 ["1ステップ予測誤差", "予測値と次の実測値の差", "y[k] - predicted_next", "mpc_residual_c"],
                 ["オフセット補正 z[k]", "モデルの癖を打ち消す補正量", "モデルに足す温度補正", "mpc_bias_correction_c"],
+                ["計算時間", "各 step で最適化にかかった時間", "MPC の解き直し負荷", "mpc_solve_time_ms"],
             ],
             "narrative": {
                 "summary": _summarize_preheating(mpc, pid, front_step, cfg),
@@ -474,10 +488,19 @@ class SmartACModel:
             },
             "metrics": {
                 "pid_min_temp_c": round(pid.min_temp, 3),
+                "pid_max_temp_c": round(pid_max_temp, 3),
+                "pid_temp_swing_c": round(pid_temp_swing, 3),
+                "pid_overshoot_c": round(pid_overshoot, 3),
                 "pid_energy_kwh": round(pid.energy_kwh, 3),
                 "pid_violations": pid.comfort_violations,
                 "mpc_min_temp_c": round(mpc.min_temp, 3),
+                "mpc_max_temp_c": round(mpc_max_temp, 3),
+                "mpc_temp_swing_c": round(mpc_temp_swing, 3),
+                "mpc_overshoot_c": round(mpc_overshoot, 3),
                 "mpc_energy_kwh": round(mpc.energy_kwh, 3),
                 "mpc_violations": mpc.comfort_violations,
+                "mpc_avg_solve_time_ms": round(sum(mpc.solve_times_ms) / len(mpc.solve_times_ms), 3),
+                "mpc_max_solve_time_ms": round(max(mpc.solve_times_ms), 3),
+                "mpc_total_solve_time_ms": round(sum(mpc.solve_times_ms), 3),
             },
         }

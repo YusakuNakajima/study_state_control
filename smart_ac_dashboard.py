@@ -119,7 +119,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       border-color: rgba(217, 72, 65, 0.18);
     }
     .status-box span { font-size: 15px; line-height: 1.5; color: var(--ink); }
-    .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
     .card { background: rgba(255,255,255,0.72); border: 1px solid var(--line); border-radius: 16px; padding: 14px; }
     .card .value { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
     .grid { grid-template-columns: 1fr 1fr; }
@@ -137,7 +137,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .slider-wrap { margin-top: 18px; }
     .slider-label { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 14px; color: var(--muted); }
     input[type="range"] { width: 100%; accent-color: var(--accent2); }
-    .step-info { margin-top: 12px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+    .step-info { margin-top: 12px; display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
     .mini { background: rgba(255,255,255,0.65); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; }
     .mini .v { font-size: 21px; font-weight: 700; }
     .bars { margin-top: 12px; display: grid; grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 8px; align-items: end; height: 160px; }
@@ -259,12 +259,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </div>
           <div class="parameter-group">
             <h3>MPCモデルと実プラント</h3>
-            <p>頭の中のモデルと本当の部屋をずらして、モデル誤差を体感できます。</p>
+            <p>現実の部屋と、MPC の頭の中のモデルを分けて設定します。両者をずらすと、モデル誤差の影響が見えます。</p>
             <div class="form-grid">
-              <div class="field"><label for="model-leak-input">モデル漏れ係数</label><input id="model-leak-input" type="number" min="0.001" max="0.05" step="0.0005"><small>MPC の頭の中の熱損失。</small></div>
-              <div class="field"><label for="plant-leak-input">実プラント漏れ係数</label><input id="plant-leak-input" type="number" min="0.001" max="0.05" step="0.0005"><small>現実の部屋の熱損失。</small></div>
-              <div class="field"><label for="model-gain-input">モデル暖房ゲイン</label><input id="model-gain-input" type="number" min="0.2" max="1.2" step="0.01"><small>MPC の頭の中の暖房効き。</small></div>
-              <div class="field"><label for="plant-gain-input">実プラント暖房ゲイン</label><input id="plant-gain-input" type="number" min="0.2" max="1.2" step="0.01"><small>現実の暖房効き。</small></div>
+              <div class="field"><label for="model-leak-input">モデル漏れ係数</label><input id="model-leak-input" type="number" min="0.001" max="0.05" step="0.0005"><small>MPC の頭の中の熱損失です。</small></div>
+              <div class="field"><label for="plant-leak-input">実プラント漏れ係数</label><input id="plant-leak-input" type="number" min="0.001" max="0.05" step="0.0005"><small>現実の部屋の熱損失です。</small></div>
+              <div class="field"><label for="model-gain-input">モデル暖房ゲイン</label><input id="model-gain-input" type="number" min="0.2" max="1.2" step="0.01"><small>MPC の頭の中の暖房の効きです。</small></div>
+              <div class="field"><label for="plant-gain-input">実プラント暖房ゲイン</label><input id="plant-gain-input" type="number" min="0.2" max="1.2" step="0.01"><small>現実の部屋の暖房の効きです。</small></div>
             </div>
           </div>
           <div class="parameter-group">
@@ -288,14 +288,18 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="status-box"><strong>実験ステータス</strong><span id="experiment-status"></span></div>
         <div class="status-box" style="margin-top:12px;"><strong>現在反映中の寒波開始</strong><span id="applied-front-step"></span></div>
         <div class="status-box" style="margin-top:12px;"><strong>この例での変数対応</strong><span>CV = 室温 <code>x[k]</code>、MV = エアコン出力 <code>u[k]</code>、外乱 = 外気温予報 <code>Tout[k]</code>、観測値 = ノイズ付き室温 <code>y[k]</code>、補正量 = <code>z[k]</code></span></div>
+        <div class="chart-title" style="margin-top:16px;"><h2>モデル式</h2><span>小さな部屋向けに簡略化した制御ループ</span></div>
+        <div id="equations" class="equation-list"></div>
       </div>
     </section>
 
     <section class="cards">
-      <div class="card"><div class="label">MPC 最低室温</div><div class="value" id="mpc-min"></div></div>
-      <div class="card"><div class="label">PID 最低室温</div><div class="value" id="pid-min"></div></div>
-      <div class="card"><div class="label">MPC 消費電力量</div><div class="value" id="mpc-energy"></div></div>
+      <div class="card"><div class="label">温度変動幅</div><div class="value" id="temp-swing"></div></div>
+      <div class="card"><div class="label">最大オーバーシュート</div><div class="value" id="overshoot"></div></div>
+      <div class="card"><div class="label">消費電力量</div><div class="value" id="energy-compare"></div></div>
       <div class="card"><div class="label">快適域逸脱回数</div><div class="value" id="violations"></div></div>
+      <div class="card"><div class="label">MPC 平均計算時間</div><div class="value" id="mpc-avg-solve"></div></div>
+      <div class="card"><div class="label">MPC 最大計算時間</div><div class="value" id="mpc-max-solve"></div></div>
     </section>
 
     <section class="grid">
@@ -327,6 +331,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </section>
 
     <section class="panel" style="margin-top:16px;">
+      <div class="chart-title"><h2>MPC の計算時間</h2><span>予測ホライズンを伸ばすと、各 step の最適化負荷がどう増えるか</span></div>
+      <canvas id="timing-chart" width="800" height="290"></canvas>
+    </section>
+
+    <section class="panel" style="margin-top:16px;">
       <div class="chart-title"><h2>用語対応表</h2><span>制御用語が今回の温度制御で何を指すか</span></div>
       <table class="terms-table">
         <colgroup>
@@ -349,10 +358,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           <li>ホライズンのグラフに出ている未来計画は仮の案です。次の計測が来たら捨てて作り直します。</li>
           <li>この例では、あえて実プラントとモデルの係数をずらしてあるので、誤差補正の意味が見えます。</li>
         </ul>
-      </div>
-      <div class="panel">
-        <div class="chart-title"><h2>モデル式</h2><span>小さな部屋向けに簡略化した制御ループ</span></div>
-        <div id="equations" class="equation-list"></div>
       </div>
     </section>
   </div>
@@ -403,10 +408,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         sensor_noise_sigma: Math.max(0, readNumber("noise-input")),
         bias_alpha: Math.min(1, Math.max(0, readNumber("bias-alpha-input"))),
         seed: Math.max(1, Math.round(readNumber("seed-input"))),
-        model_leak_rate: readNumber("model-leak-input"),
-        plant_leak_rate: readNumber("plant-leak-input"),
-        model_heater_gain: readNumber("model-gain-input"),
-        plant_heater_gain: readNumber("plant-gain-input"),
+        model_leak_rate: Math.max(0.001, readNumber("model-leak-input")),
+        plant_leak_rate: Math.max(0.001, readNumber("plant-leak-input")),
+        model_heater_gain: Math.max(0.2, readNumber("model-gain-input")),
+        plant_heater_gain: Math.max(0.2, readNumber("plant-gain-input")),
         mpc_horizon_steps: Math.max(3, Math.round(readNumber("horizon-input"))),
         pid_kp: Math.max(0, readNumber("pid-kp-input")),
         pid_ki: Math.max(0, readNumber("pid-ki-input")),
@@ -419,13 +424,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       setText("meta-front", `${data.narrative.front_hour.toFixed(2)} 時間後 (step ${data.narrative.front_step})`);
       setText("meta-horizon", `${data.config.mpc_horizon_steps} ステップ = ${(data.config.mpc_horizon_steps * data.config.dt_hours).toFixed(1)} 時間`);
       setText("meta-summary", data.narrative.summary);
-      setText("mpc-min", `${metrics.mpc_min_temp_c.toFixed(2)} C`);
-      setText("pid-min", `${metrics.pid_min_temp_c.toFixed(2)} C`);
-      setText("mpc-energy", `${metrics.mpc_energy_kwh.toFixed(2)} kWh`);
+      setText("temp-swing", `MPC ${metrics.mpc_temp_swing_c.toFixed(2)} / PID ${metrics.pid_temp_swing_c.toFixed(2)} C`);
+      setText("overshoot", `MPC ${metrics.mpc_overshoot_c.toFixed(2)} / PID ${metrics.pid_overshoot_c.toFixed(2)} C`);
+      setText("energy-compare", `MPC ${metrics.mpc_energy_kwh.toFixed(2)} / PID ${metrics.pid_energy_kwh.toFixed(2)} kWh`);
       setText("violations", `MPC ${metrics.mpc_violations} / PID ${metrics.pid_violations}`);
+      setText("mpc-avg-solve", `${metrics.mpc_avg_solve_time_ms.toFixed(2)} ms`);
+      setText("mpc-max-solve", `${metrics.mpc_max_solve_time_ms.toFixed(2)} ms`);
       setText("applied-front-step", `step ${data.config.cold_front_start_step} / ${data.narrative.front_hour.toFixed(2)} 時間後`);
       renderEquations();
-      setText("experiment-status", `MPC最低室温 ${metrics.mpc_min_temp_c.toFixed(2)} C、PID最低室温 ${metrics.pid_min_temp_c.toFixed(2)} C。ステップスライダーや再生ボタンで各時点の計画を確認できます。`);
+      setText("experiment-status", `温度変動幅は MPC ${metrics.mpc_temp_swing_c.toFixed(2)} C、PID ${metrics.pid_temp_swing_c.toFixed(2)} C です。最大オーバーシュートは MPC ${metrics.mpc_overshoot_c.toFixed(2)} C、PID ${metrics.pid_overshoot_c.toFixed(2)} C。平均計算時間は ${metrics.mpc_avg_solve_time_ms.toFixed(2)} ms です。`);
     }
 
     function renderEquations() {
@@ -477,19 +484,34 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       const ctx = canvas.getContext("2d");
       const width = canvas.width;
       const height = canvas.height;
-      const pad = { top: 20, right: 18, bottom: 28, left: 42 };
+      const hasRightAxis = Boolean(options.rightAxis);
+      const pad = { top: 20, right: hasRightAxis ? 48 : 18, bottom: 28, left: 42 };
       const chartWidth = width - pad.left - pad.right;
       const chartHeight = height - pad.top - pad.bottom;
       const flat = series.flatMap(item => item.values).filter(value => value !== null && value !== undefined);
-      const minValue = options.minValue !== undefined ? options.minValue : Math.min(...flat);
-      const maxValue = options.maxValue !== undefined ? options.maxValue : Math.max(...flat);
-      const domain = maxValue - minValue || 1;
+      const leftAxis = {
+        min: options.minValue !== undefined ? options.minValue : Math.min(...flat),
+        max: options.maxValue !== undefined ? options.maxValue : Math.max(...flat),
+      };
+      leftAxis.domain = leftAxis.max - leftAxis.min || 1;
+      const rightAxis = hasRightAxis
+        ? {
+            min: options.rightAxis.minValue,
+            max: options.rightAxis.maxValue,
+            label: options.rightAxis.label || "",
+          }
+        : null;
+      if (rightAxis) rightAxis.domain = rightAxis.max - rightAxis.min || 1;
+      const yForValue = (value, axisName = "left") => {
+        const axis = axisName === "right" && rightAxis ? rightAxis : leftAxis;
+        return pad.top + (1 - (value - axis.min) / axis.domain) * chartHeight;
+      };
 
       ctx.clearRect(0, 0, width, height);
       if (options.bands) {
         for (const band of options.bands) {
-          const yTop = pad.top + (1 - (band.max - minValue) / domain) * chartHeight;
-          const yBottom = pad.top + (1 - (band.min - minValue) / domain) * chartHeight;
+          const yTop = yForValue(band.max, band.axis || "left");
+          const yBottom = yForValue(band.min, band.axis || "left");
           ctx.fillStyle = band.color;
           ctx.fillRect(pad.left, yTop, chartWidth, yBottom - yTop);
         }
@@ -526,12 +548,36 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           }
         }
       }
+      if (options.referenceLines) {
+        for (const line of options.referenceLines) {
+          const y = yForValue(line.value, line.axis || "left");
+          ctx.strokeStyle = line.color || "rgba(15, 23, 42, 0.35)";
+          ctx.lineWidth = line.width || 1.4;
+          ctx.setLineDash(line.dash || [4, 4]);
+          ctx.beginPath();
+          ctx.moveTo(pad.left, y);
+          ctx.lineTo(pad.left + chartWidth, y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          if (line.label) {
+            ctx.fillStyle = line.color || "#334155";
+            ctx.font = "bold 12px Segoe UI";
+            ctx.fillText(line.label, pad.left + 8, y - 6);
+          }
+        }
+      }
       ctx.strokeStyle = "#94a3b8";
       ctx.strokeRect(pad.left, pad.top, chartWidth, chartHeight);
       ctx.fillStyle = "#5b6775";
       ctx.font = "12px Segoe UI";
-      ctx.fillText(maxValue.toFixed(1), 6, pad.top + 4);
-      ctx.fillText(minValue.toFixed(1), 6, pad.top + chartHeight);
+      ctx.fillText(leftAxis.max.toFixed(1), 6, pad.top + 4);
+      ctx.fillText(leftAxis.min.toFixed(1), 6, pad.top + chartHeight);
+      if (rightAxis) {
+        ctx.textAlign = "right";
+        ctx.fillText(rightAxis.max.toFixed(1), width - 6, pad.top + 4);
+        ctx.fillText(rightAxis.min.toFixed(1), width - 6, pad.top + chartHeight);
+        ctx.textAlign = "left";
+      }
       ctx.fillText("時間", width - 32, height - 8);
 
       function drawSeries(item, endIndex, alpha = 1.0) {
@@ -553,7 +599,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             return;
           }
           const x = pad.left + (index / Math.max(1, item.values.length - 1)) * chartWidth;
-          const y = pad.top + (1 - (value - minValue) / domain) * chartHeight;
+          const y = yForValue(value, item.axis || "left");
           if (!drawing) {
             ctx.beginPath();
             ctx.moveTo(x, y);
@@ -591,7 +637,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         if (options.markerValues) {
           for (const marker of options.markerValues) {
             if (options.currentIndex >= marker.values.length) continue;
-            const y = pad.top + (1 - (marker.values[options.currentIndex] - minValue) / domain) * chartHeight;
+            const y = yForValue(marker.values[options.currentIndex], marker.axis || "left");
             ctx.fillStyle = marker.color;
             ctx.beginPath();
             ctx.arc(x, y, 4, 0, Math.PI * 2);
@@ -645,9 +691,15 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       drawLineChart("power-chart", [
         makeSeries(timeline.map(row => row.mpc_power_pct), COLORS.blue, "MPC 出力 %", 2.4),
         makeSeries(timeline.map(row => row.pid_power_pct), COLORS.red, "PID 出力 %", 2.2),
-        makeSeries(timeline.map(row => row.outdoor_temp_c), COLORS.accent, "外気温 C", 2.0),
+        { ...makeSeries(timeline.map(row => row.outdoor_temp_c), COLORS.accent, "外気温 C", 2.0), axis: "right" },
       ], {
-        minValue: -8, maxValue: 105, length: timeline.length,
+        minValue: 0, maxValue: 105,
+        rightAxis: { minValue: -8, maxValue: 15, label: "外気温 C" },
+        referenceLines: [
+          { value: 0, color: "rgba(37, 99, 235, 0.32)", label: "出力 0%", dash: [2, 6] },
+          { value: 0, axis: "right", color: "rgba(19, 111, 99, 0.7)", label: "外気温 0℃", dash: [8, 4] },
+        ],
+        length: timeline.length,
         verticalLines: [{
           index: data.narrative.front_step,
           color: COLORS.red,
@@ -659,7 +711,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         markerValues: [
           { values: timeline.map(row => row.mpc_power_pct), color: COLORS.blue },
           { values: timeline.map(row => row.pid_power_pct), color: COLORS.red },
-          { values: timeline.map(row => row.outdoor_temp_c), color: COLORS.accent },
+          { values: timeline.map(row => row.outdoor_temp_c), color: COLORS.accent, axis: "right" },
         ],
       });
       drawLineChart("bias-chart", [
@@ -678,6 +730,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         markerValues: [
           { values: timeline.map(row => row.mpc_residual_c), color: COLORS.red },
           { values: timeline.map(row => row.mpc_bias_correction_c), color: COLORS.blue },
+        ],
+      });
+      const solveTimes = timeline.map(row => row.mpc_solve_time_ms);
+      const timingMax = Math.max(1, ...solveTimes);
+      drawLineChart("timing-chart", [
+        makeSeries(solveTimes, COLORS.gold, "1 step の計算時間 ms", 2.6),
+        makeSeries(new Array(timeline.length).fill(data.metrics.mpc_avg_solve_time_ms), COLORS.gray, "平均", 1.5, [6, 4]),
+      ], {
+        minValue: 0,
+        maxValue: Math.max(2, timingMax * 1.15),
+        length: timeline.length,
+        verticalLines: [{
+          index: data.narrative.front_step,
+          color: COLORS.red,
+          label: "寒波到来",
+          bandWidth: 1.5,
+          bandColor: "rgba(217, 72, 65, 0.10)",
+        }],
+        currentIndex: currentStep, revealUntil: currentStep,
+        markerValues: [
+          { values: solveTimes, color: COLORS.gold },
         ],
       });
       setupMeta();
@@ -709,16 +782,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
     function renderStep(step) {
       const row = data.timeline[step];
-      const plan = data.plans[step];
       setText("step-readout", `step ${step} / ${row.hour.toFixed(2)} 時間`);
-      setText("experiment-status", `step ${step} を表示中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C です。`);
+      renderCharts(step);
+      setText("experiment-status", `step ${step} を表示中です。現在の室温は ${row.mpc_actual_room_temp_c.toFixed(2)} C、操作量は ${row.mpc_power_pct.toFixed(0)} %、予測誤差は ${row.mpc_residual_c.toFixed(2)} C、計算時間は ${row.mpc_solve_time_ms.toFixed(2)} ms です。`);
       document.getElementById("step-info").innerHTML =
         buildInfoCard("センサー y[k]", `${row.mpc_measured_room_temp_c.toFixed(2)} C`) +
         buildInfoCard("実温度 x[k]", `${row.mpc_actual_room_temp_c.toFixed(2)} C`) +
         buildInfoCard("操作量 u[k]", `${row.mpc_power_pct.toFixed(0)} %`) +
         buildInfoCard("予測誤差", `${row.mpc_residual_c.toFixed(2)} C`) +
-        buildInfoCard("補正 z[k]", `${row.mpc_bias_correction_c.toFixed(2)} C`);
-      renderCharts(step);
+        buildInfoCard("補正 z[k]", `${row.mpc_bias_correction_c.toFixed(2)} C`) +
+        buildInfoCard("計算時間", `${row.mpc_solve_time_ms.toFixed(2)} ms`);
       renderControlBars(step);
       const realized = new Array(data.timeline.length).fill(null);
       data.timeline.forEach((timelineRow, index) => {

@@ -52,6 +52,7 @@ def write_csv_report(
                 "mpc_power_pct",
                 "mpc_residual_c",
                 "mpc_bias_correction_c",
+                "mpc_solve_time_ms",
             ]
         )
         for step in range(cfg.steps):
@@ -67,6 +68,7 @@ def write_csv_report(
                     round(mpc.controls[step] * 100.0, 1),
                     round(mpc.residuals[step + 1], 3),
                     round(mpc.bias_corrections[step + 1], 3),
+                    round(mpc.solve_times_ms[step], 3),
                 ]
             )
 
@@ -92,6 +94,12 @@ def main() -> None:
     pid = model.run_pid(outdoor_temps, noise)
     mpc = model.run_mpc(outdoor_temps, noise)
     front_step = cfg.cold_front_start_step
+    pid_max_temp = max(pid.actual_temps)
+    mpc_max_temp = max(mpc.actual_temps)
+    pid_temp_swing = pid_max_temp - pid.min_temp
+    mpc_temp_swing = mpc_max_temp - mpc.min_temp
+    pid_overshoot = max(0.0, pid_max_temp - cfg.comfort_high)
+    mpc_overshoot = max(0.0, mpc_max_temp - cfg.comfort_high)
 
     print("Smart-AC CLI")
     print("============")
@@ -110,6 +118,12 @@ def main() -> None:
     print(
         f"Forecast-aware MPC     : min {mpc.min_temp:.2f} C, "
         f"energy {mpc.energy_kwh:.2f} kWh, violations {mpc.comfort_violations}"
+    )
+    print(f"Temperature swing      : MPC {mpc_temp_swing:.2f} C / PID {pid_temp_swing:.2f} C")
+    print(f"Peak overshoot         : MPC {mpc_overshoot:.2f} C / PID {pid_overshoot:.2f} C")
+    print(
+        f"MPC solve time         : avg {sum(mpc.solve_times_ms) / len(mpc.solve_times_ms):.2f} ms, "
+        f"max {max(mpc.solve_times_ms):.2f} ms, total {sum(mpc.solve_times_ms):.2f} ms"
     )
     print(model.simulate()["narrative"]["summary"])
 
